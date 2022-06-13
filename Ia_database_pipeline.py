@@ -5,7 +5,8 @@ Created on Fri Feb 19 15:25:05 2021
 
 @author: sprentice
 
-Updated on Mon May 30 15:25:05 2022 - increased redshift cut and timeout protection in get_TNS_function @luharvey
+Updated on Mon May 30 2022 - increased redshift cut and timeout protection in get_TNS_function @luharvey
+Updated on Mon June 13 2022 - added exception in the ztf_dataframe function to deal with the case of no reply from the TNS @luharvey
 """
 
 import requests

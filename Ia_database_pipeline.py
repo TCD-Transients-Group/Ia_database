@@ -7,6 +7,7 @@ Created on Fri Feb 19 15:25:05 2021
 
 Updated on Mon May 30 2022 - increased redshift cut and timeout protection in get_TNS_function @luharvey
 Updated on Mon June 13 2022 - added exception in the ztf_dataframe function to deal with the case of no reply from the TNS @luharvey
+Updated on Thurs June 16 2022 - added user detection so that LT spectra from other programs aren't labelled 'y' @luharvey
 """
 
 import requests
@@ -22,6 +23,8 @@ import numpy as np
 from scipy.interpolate import UnivariateSpline as spline
 import matplotlib.pyplot as plt
 import time
+
+users = ['luharvey','deckersm','terwelj','katemaguire','gdimit','bumut']
 
 # Some user input here
 downloadRecent = True # set as True to use the Fritz API to get recent objects
@@ -498,14 +501,41 @@ def get_spectra_dates(zname):
     
     mjd_list = []
     instrument_list = []
+    observer_list = []
     
     for s in spectra:
         observed_at_isot = s['observed_at']
         mjd = Time(observed_at_isot).mjd
         mjd_list.append(mjd)
         instrument_list.append(s['instrument_name'])
+        if len(s['observers']) != 0:
+            observer_list.append(s['observers'][0]['username'])
+        else:
+            observer_list.append('')
     
-    return mjd_list, instrument_list
+    return mjd_list, instrument_list, observer_list
+
+#Original function
+#def get_spectra_dates(zname):
+#    
+#    print('Fetching the spectra dates')
+#    response  = api_spectra('GET', f'https://fritz.science/api/sources/{zname}/spectra')
+#    print(f'HTTP code: {response.status_code}, {response.reason}')
+#    
+#    a = response.json()
+#    
+#    spectra = a['data']['spectra']
+#    
+#    mjd_list = []
+#    instrument_list = []
+#    
+#    for s in spectra:
+#        observed_at_isot = s['observed_at']
+#        mjd = Time(observed_at_isot).mjd
+#        mjd_list.append(mjd)
+#        instrument_list.append(s['instrument_name'])
+#    
+#    return mjd_list, instrument_list
 
 
 # This function fits the light curve and produces the output plots
@@ -572,7 +602,7 @@ def fit_LC( t_ref , m_ref , runs = 100, tmax_only = True, band = 'ztfr', name ='
     # for this object get the spectra mjds from fritz
     # first, get the spectra dates in the Fritz
     # instrumental retrieval added 30/05/2022 @luharvey
-    spectra_mjds, spectra_instruments = get_spectra_dates(name)
+    spectra_mjds, spectra_instruments, spectra_observers = get_spectra_dates(name)
 
     # plot the LCs
     plt.plot(final_t, final_m, color = 'grey', linestyle = 'dotted', label ='Template')
@@ -581,7 +611,7 @@ def fit_LC( t_ref , m_ref , runs = 100, tmax_only = True, band = 'ztfr', name ='
     
     for i, s in enumerate(spectra_mjds):
         plt.axvline(x = s - t_first, linestyle = 'dashed', color='lightgrey', lw = 1, zorder =0)
-        if spectra_instruments[i] == 'SPRAT':
+        if spectra_instruments[i] == 'SPRAT' and spectra_observers[i] in users:
             plt.text(s - t_first, -0.1, 'Y', ha = 'center', fontsize = 8)
         else:
             plt.text(s - t_first, -0.1, 'S', ha = 'center', fontsize = 8)

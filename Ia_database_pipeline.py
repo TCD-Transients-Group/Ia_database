@@ -5,7 +5,8 @@ Created on Fri Feb 19 15:25:05 2021
 
 @author: sprentice
 
-Updated on Mon May 30 15:25:05 2022 - increased redshift cut and timeout protection in get_TNS_function @luharvey
+Updated on Mon May 30 2022 - increased redshift cut and timeout protection in get_TNS_function @luharvey
+Updated on Mon June 13 2022 - added exception in the ztf_dataframe function to deal with the case of no reply from the TNS @luharvey
 """
 
 import requests
@@ -323,7 +324,16 @@ def make_csv(data, save_new_csv = True):
 def ztf_dataframe(csv):
     df = pd.read_csv(csv)
     
-    df['TNS name'] = [get_TNS_name(sn) for sn in df['Source ID']]
+    TNS_names = []
+
+    for sn in df['Source ID']:
+        try:
+            TNS_names.append(get_TNS_name(sn))
+        except:
+            print('Error occured in retrieving the TNS name for ' + sn)
+            TNS_names.append('Unknown')
+
+    df['TNS name'] = pd.Series(TNS_names)
     
     columns_to_use =  ['Source ID','TNS name', 'RA (hh:mm:ss)',
        'Dec (dd:mm:ss)', 'Redshift', 'Classification', 'Date Saved',
@@ -333,9 +343,24 @@ def ztf_dataframe(csv):
         
     df['ra/dec'] = [get_coords(df['RA (hh:mm:ss)'][j], df['Dec (dd:mm:ss)'][j]) for j in range(len(df['Classification'])) ]  
     
-    #print(df.head())
-    
     return df
+#Original function
+#def ztf_dataframe(csv):
+#    df = pd.read_csv(csv)
+#    
+#    df['TNS name'] = [get_TNS_name(sn) for sn in df['Source ID']]
+#    
+#    columns_to_use =  ['Source ID','TNS name', 'RA (hh:mm:ss)',
+#       'Dec (dd:mm:ss)', 'Redshift', 'Classification', 'Date Saved',
+#       ]
+#
+#    df = df[columns_to_use]
+#        
+#    df['ra/dec'] = [get_coords(df['RA (hh:mm:ss)'][j], df['Dec (dd:mm:ss)'][j]) for j in range(len(df['Classification'])) ]  
+#    
+#    #print(df.head())
+#    
+#    return df
 
 def get_created_date(sn):
     response = api_meta('GET', f'https://fritz.science/api/candidates/{sn}')

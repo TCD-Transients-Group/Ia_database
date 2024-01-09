@@ -8,6 +8,7 @@ Created on Fri Feb 19 15:25:05 2021
 Updated on Mon May 30 2022 - increased redshift cut and timeout protection in get_TNS_function @luharvey
 Updated on Mon June 13 2022 - added exception in the ztf_dataframe function to deal with the case of no reply from the TNS @luharvey
 Updated on Thurs June 16 2022 - added user detection so that LT spectra from other programs aren't labelled 'y' @luharvey
+Updated on Tues January 09 2024 - get_tmax function now has the ability to fit photometry with a template in the rare case that there is only one point in each band (take with grain of salt) @luharvey
 """
 
 import requests
@@ -23,6 +24,13 @@ import numpy as np
 from scipy.interpolate import UnivariateSpline as spline
 import matplotlib.pyplot as plt
 import time
+
+plt.rcParams["font.family"] = "Times New Roman"
+plt.rcParams['mathtext.fontset'] = 'custom'
+plt.rcParams['mathtext.rm'] = 'Times New Roman'
+plt.rcParams['mathtext.it'] = 'Times New Roman'
+plt.rcParams['mathtext.bf'] = 'Times New Roman'
+plt.rcParams.update({'font.size': 20})
 
 users = ['luharvey','deckersm','terwelj','katemaguire','gdimit','bumut']
 
@@ -604,9 +612,22 @@ def fit_LC( t_ref , m_ref , runs = 100, tmax_only = True, band = 'ztfr', name ='
     # instrumental retrieval added 30/05/2022 @luharvey
     spectra_mjds, spectra_instruments, spectra_observers = get_spectra_dates(name)
 
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    for axis in ['top', 'bottom', 'left', 'right']:
+        ax.spines[axis].set_linewidth(2)
+    ax.xaxis.set_tick_params(width=2, length = 6)
+    ax.xaxis.set_tick_params(width=1, length = 4, which = 'minor')
+    ax.yaxis.set_tick_params(width=2, length = 6)
+    ax.yaxis.set_tick_params(width=1, length = 4, which = 'minor')
+
     # plot the LCs
     plt.plot(final_t, final_m, color = 'grey', linestyle = 'dotted', label ='Template')
-    plt.scatter(t_ref, m_ref, marker = 'o', label = band, zorder = 0)    
+    # plot aesthetics changed 31/07/2023 @luharvey
+    if band == 'ztfr':
+        plt.scatter(t_ref, m_ref, marker = 'o', label = band, zorder = 0, color = 'C3', s = 100, edgecolor = 'k')    
+    elif band == 'ztfg':
+        plt.scatter(t_ref, m_ref, marker = 'o', label = band, zorder = 0, color = '#1ABC9C', s = 100, edgecolor = 'k') 
     plt.axvline(x = mjd_now - t_first, color = 'tab:orange', lw = 1, label = 'Time of plot')
     
     for i, s in enumerate(spectra_mjds):
@@ -616,7 +637,7 @@ def fit_LC( t_ref , m_ref , runs = 100, tmax_only = True, band = 'ztfr', name ='
         else:
             plt.text(s - t_first, -0.1, 'S', ha = 'center', fontsize = 8)
     
-    plt.legend()
+    plt.legend(frameon = 0)
     plt.gca().invert_yaxis()
     plt.minorticks_on()
     plt.xlabel('Time since first observation', fontsize = 12)
@@ -645,28 +666,68 @@ def get_tmax(sn, time_now):
     print(f'HTTP code: {response.status_code}, {response.reason}')
 
     a = response.json()
-    
-    # creat a list of lists to hold the time to max and the mjd of max
+    #create a list of lists to hold the time to max and the mjd of max
     tmax_list = [[],[]]
+
+    phot = {}
+    for band in ['ztfg', 'ztfr']:
+        t, m = get_photometry(a, band = band)
+        t, m = clean_LC(t, m)
+        phot[band] = [t,m]
+
+    if len(phot['ztfg'][0]) <= 1 and len(phot['ztfr'][0]) <= 1:
+        minimum_points = 1
+    else:
+        minimum_points = 2
+
+    # @luharvey - introducing minimum points variable which allows the code to fit the object with a template in the case of having a single point in each of the two bands
+
     for band in ('ztfg', 'ztfr'):
         
         # get the photometry
-        t, m = get_photometry(a, band = band)
+        t, m = phot[band]
         
         # remove None values
-        t, m = clean_LC(t, m)
+        #t, m = clean_LC(t, m)
         
         # fit for maximum, rejecting if there is not enough photometry
-        if len(m) > 1:
-            tmax = fit_LC(t,m, band = band, name = sn, mjd_now = time_now)
+        if len(m) >= minimum_points:
+            tmax = fit_LC(t, m, band = band, name = sn, mjd_now = time_now)
         
             isot_max = Time(tmax[1], format = 'mjd').isot
             print(f'Predicted {band} maximum on {isot_max}')
             tmax_list[0].append(tmax[0])
             tmax_list[1].append(tmax[1])
-    
-    
+
     return ( np.mean(tmax_list[0]), np.mean(tmax_list[1]) )
+
+
+#def get_tmax(sn, time_now):
+#    print(f'\nFetching photometry for {sn}')
+#    response  = api_phot('GET', 'https://fritz.science/api/sources/', obj_id = sn)
+#    print(f'HTTP code: {response.status_code}, {response.reason}')
+#
+#    a = response.json()
+#    #create a list of lists to hold the time to max and the mjd of max
+#    tmax_list = [[],[]]
+#    for band in ('ztfg', 'ztfr'):
+#        
+#        # get the photometry
+#        t, m = get_photometry(a, band = band)
+#        
+#        # remove None values
+#        t, m = clean_LC(t, m)
+#        
+#        # fit for maximum, rejecting if there is not enough photometry
+#        if len(m) > 1:
+#            tmax = fit_LC(t, m, band = band, name = sn, mjd_now = time_now)
+#        
+#            isot_max = Time(tmax[1], format = 'mjd').isot
+#            print(f'Predicted {band} maximum on {isot_max}')
+#            tmax_list[0].append(tmax[0])
+#            tmax_list[1].append(tmax[1])
+#    print(tmax_list)
+#    return ( np.mean(tmax_list[0]), np.mean(tmax_list[1]) )
 
 
 
@@ -695,7 +756,6 @@ def set_for_obs(df, obs_file = './OBSERVE_SN.txt'):
         z = df['Redshift'][i]
         has_max = df['Max spec'][i]
         
-        
         #print(df['Discovery Date (UT)'][i])
         if str(df['Discovery Date (UT)'][i]) != 'nan':
             
@@ -705,14 +765,12 @@ def set_for_obs(df, obs_file = './OBSERVE_SN.txt'):
             # if the object exists in the dictionary, take that, if not create a new row
             sn_status = sn_dict.get(zname, [z, coordinates, None, '-'])
                 
-            
             # only take new objects
-            if time_now - t0 <35:               
+            if time_now - t0 < 35:               
                 
                 # now get the time since max and plot the light curves
                 tsince, mjd_max = get_tmax(zname, time_now)
                 isot_max = Time(mjd_max, format = 'mjd').isot
-                
                 
                 # if the SN has not been added, we want to include the isot_max
                 if sn_status[2] == None:
@@ -742,7 +800,6 @@ def set_for_obs(df, obs_file = './OBSERVE_SN.txt'):
     np.savetxt(obs_file, main, fmt="%s", delimiter = '\t', header = 'ztf name\tz\tra/dec\tisot of max\tstatus')
     
     print(f'Pipeline complete\n')
-    
     
 ## Run the pipeline
 if downloadRecent:

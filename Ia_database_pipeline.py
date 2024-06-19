@@ -9,6 +9,7 @@ Updated on Mon May 30 2022 - increased redshift cut and timeout protection in ge
 Updated on Mon June 13 2022 - added exception in the ztf_dataframe function to deal with the case of no reply from the TNS @luharvey
 Updated on Thurs June 16 2022 - added user detection so that LT spectra from other programs aren't labelled 'y' @luharvey
 Updated on Tues January 09 2024 - get_tmax function now has the ability to fit photometry with a template in the rare case that there is only one point in each band (take with grain of salt) @luharvey
+Updated on Wed June 19 2024 - get_tmax function will no longer crash if it recieves an object with no photometry data, the date of peak and status are simply returned as unknown @luharvey
 """
 
 import requests
@@ -550,13 +551,12 @@ def get_spectra_dates(zname):
 
 def fit_LC( t_ref , m_ref , runs = 100, tmax_only = True, band = 'ztfr', name ='', mjd_now = 0):
     
-    
+
     # Normalise the reference LC. The first two may be needed in order to plot some relative time
     t_last = max(t_ref)
     t_first = min(t_ref)
     t_ref = t_ref - min(t_ref) 
     m_ref = m_ref - min(m_ref)
-    
     
     # load in the template LC
     t, m = np.loadtxt(f'./templates/template_for_{band}.txt', unpack = True)
@@ -652,11 +652,12 @@ def fit_LC( t_ref , m_ref , runs = 100, tmax_only = True, band = 'ztfr', name ='
 
     
 def clean_LC(t_ref,m_ref):
+
     # some cleaning, must do t_ref before m_ref
     m_ref = np.array(m_ref, dtype='float')
     t_ref = t_ref[~np.isnan(np.array(m_ref))]
     m_ref = m_ref[~np.isnan(np.array(m_ref))]
-    
+
     return np.array(t_ref), np.array(m_ref)
 
     
@@ -675,7 +676,9 @@ def get_tmax(sn, time_now):
         t, m = clean_LC(t, m)
         phot[band] = [t,m]
 
-    if len(phot['ztfg'][0]) <= 1 and len(phot['ztfr'][0]) <= 1:
+    if len(phot['ztfg'][0]) == 0 and len(phot['ztfr'][0]) == 0:
+        return None, None
+    elif len(phot['ztfg'][0]) == 1 and len(phot['ztfr'][0]) == 1:
         minimum_points = 1
     else:
         minimum_points = 2
@@ -770,31 +773,38 @@ def set_for_obs(df, obs_file = './OBSERVE_SN.txt'):
                 
                 # now get the time since max and plot the light curves
                 tsince, mjd_max = get_tmax(zname, time_now)
-                isot_max = Time(mjd_max, format = 'mjd').isot
+                if tsince != None:
+                    isot_max = Time(mjd_max, format = 'mjd').isot
+                else:
+                    isot_max = 'None'
                 
                 # if the SN has not been added, we want to include the isot_max
                 if sn_status[2] == None:
                     sn_status[2] = isot_max
                 
-                # Now check each object. Set 'complete' those with max spectrum. pandas gives blank elements as nan
-                if str(has_max) == 'y' or str(has_max) == 's':
-                    print(f'{zname} has maximum light spectrum.')
-                    sn_status[3] = 'complete'
+                if mjd_max == None:
+                    sn_status[3] = '*** ? ***'
                     main.append([zname, *sn_status ])
-                
-                # Make those with no max spectrum but tmax in the future active
-                elif ((time_now - mjd_max) < 10):
-                    print(f'{zname} is active. Please update observing schedule.')
-                    sn_status[3] = '*** active ***'
-                    
-                    main.append([zname, *sn_status ])
-                
-                # deactivate any without max spectrum and no max spectrum
                 else:
-                    print(f'{zname}, peak passed {(time_now - mjd_max):.1f} days ago.')
-
-                    sn_status[3] = '-'
-                    main.append([zname, *sn_status ])
+                    # Now check each object. Set 'complete' those with max spectrum. pandas gives blank elements as nan
+                    if str(has_max) == 'y' or str(has_max) == 's':
+                        print(f'{zname} has maximum light spectrum.')
+                        sn_status[3] = 'complete'
+                        main.append([zname, *sn_status ])
+                    
+                    # Make those with no max spectrum but tmax in the future active
+                    elif ((time_now - mjd_max) < 10):
+                        print(f'{zname} is active. Please update observing schedule.')
+                        sn_status[3] = '*** active ***'
+                        
+                        main.append([zname, *sn_status ])
+                    
+                    # deactivate any without max spectrum and no max spectrum
+                    else:
+                        print(f'{zname}, peak passed {(time_now - mjd_max):.1f} days ago.')
+                    
+                        sn_status[3] = '-'
+                        main.append([zname, *sn_status ])
     
     print(f'\nSaving {obs_file}')
     np.savetxt(obs_file, main, fmt="%s", delimiter = '\t', header = 'ztf name\tz\tra/dec\tisot of max\tstatus')
